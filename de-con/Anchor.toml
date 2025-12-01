@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-de_con = "Fdb4auA9NWqzJ935n6FFMv3ogLG6J1tpwaohTHSksLJD"
+de_con = "61oxCTFdcrLTPFjEhjSQkthjpaCvukRBvVGG342sxfMa"
 
 [registry]
 url = "https://api.apr.dev"
