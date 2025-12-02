@@ -5,6 +5,7 @@
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
   "dependencies": {
+    "@clockwork-xyz/sdk": "^0.3.4",
     "@coral-xyz/anchor": "^0.32.1"
   },
   "devDependencies": {

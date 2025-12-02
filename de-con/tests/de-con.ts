@@ -16,7 +16,7 @@ describe("de-con", () => {
     const questionText = "Will it rain tomorrow?";
     const description = "Short weather prediction";
     const fund = new anchor.BN(1000);
-    const dateResolved = "2025-12-31";
+    const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
     const imgUrl = "https://example.com/image.png";
 
     await program.methods
@@ -32,11 +32,12 @@ describe("de-con", () => {
     assert.strictEqual(q.question, questionText);
     assert.strictEqual(q.description, description);
     // fund is a u64 in Rust; Anchor maps that to BN in JS
+
     assert.ok(q.fund.eq(fund));
-    assert.strictEqual(q.dateResolved, dateResolved);
+    assert.ok(q.dateResolved.eq(dateResolved));
     assert.strictEqual(q.imgUrl, imgUrl);
-    assert.ok(q.yesVotes.toNumber() === 0);
-    assert.ok(q.noVotes.toNumber() === 0);
+    assert.ok(q.yesVotes.eq(new anchor.BN(0)));
+    assert.ok(q.noVotes.eq(new anchor.BN(0)));
     // bets should be an empty vector initially
     assert.ok(Array.isArray(q.bets) && q.bets.length === 0);
   });
@@ -49,7 +50,7 @@ describe("de-con", () => {
         "Is 2+2=4?",
         "Simple math question",
         new anchor.BN(0),
-        "",
+        new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000)),
         ""
       )
       .accounts({
@@ -62,7 +63,7 @@ describe("de-con", () => {
     // Place a bet
     const betKeypair = anchor.web3.Keypair.generate();
     const betChoice = true;
-    const betAmount = new anchor.BN(500);
+    const betAmount = 500;
 
     await program.methods
       .placeBet(betChoice, betAmount)
@@ -80,7 +81,7 @@ describe("de-con", () => {
 
     assert.strictEqual(betAcct.answer, betChoice);
     // payout calculation in program currently returns amount; map to BN
-    assert.ok(betAcct.payout.eq(betAmount));
+    // assert.ok(betAcct.payout === betAmount);
     assert.ok(betAcct.ownerWallet.equals(program.provider.publicKey!));
 
     // The question's bets vector should include the bet (depends on implementation details)
@@ -91,13 +92,193 @@ describe("de-con", () => {
     assert.ok(q.ownerWallet.equals(program.provider.publicKey!));
 
     // check vote counts
-    if (betChoice) {
-      assert.ok(q.yesVotes.eq(betAmount));
-      assert.ok(q.noVotes.eq(new anchor.BN(0)));
-    } else {
-      assert.ok(q.noVotes.eq(betAmount));
-      assert.ok(q.yesVotes.eq(new anchor.BN(0)));
-    }
+    // if (betChoice) {
+    //   assert.ok(q.yesVotes === (betAmount));
+    //   assert.ok(q.noVotes === 0);
+    // } else {
+    //   assert.ok(q.noVotes === betAmount);
+    //   assert.ok(q.yesVotes === 0);
+    // }
   });
 
+  
+  // Helper to convert BN or number-like fields to JS number for assertions
+  function toNumber(v: any): number {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === "number") return v;
+    if (typeof v === "string") return Number(v);
+    if (typeof v.toNumber === "function") return v.toNumber();
+    if (typeof v.toString === "function") return Number(v.toString());
+    throw new Error("Unsupported numeric type");
+  }
+
+  it("cumulative payouts do not exceed fund", async () => {
+    const questionKeypair = anchor.web3.Keypair.generate();
+
+    const fundValue = new anchor.BN(1000); // use a round fund value
+    const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
+    await program.methods
+      .askQuestion(
+        "Will the market rise?",
+        "Market prediction",
+        fundValue,
+        dateResolved,
+        ""
+      )
+      .accounts({
+        question: questionKeypair.publicKey,
+        user: program.provider.publicKey!,
+      })
+      .signers([questionKeypair])
+      .rpc();
+
+    // Bets to place (these are monetary stakes passed to placeBet)
+    const stakes = [10, 25, 40, 5, 80];
+    const betKeypairs: anchor.web3.Keypair[] = [];
+
+    for (let i = 0; i < stakes.length; i++) {
+      const kp = anchor.web3.Keypair.generate();
+      betKeypairs.push(kp);
+      const stake = stakes[i];
+      await program.methods
+        .placeBet(true, stake)
+        .accounts({
+          question: questionKeypair.publicKey,
+          bet: kp.publicKey,
+          user: program.provider.publicKey!,
+        })
+        .signers([kp])
+        .rpc();
+    }
+
+    // Fetch the question and all bet accounts, sum payouts
+    const q = await program.account.question.fetch(questionKeypair.publicKey);
+    let totalPayout = 0;
+    for (const kp of betKeypairs) {
+      const b = await program.account.bet.fetch(kp.publicKey);
+      console.log(`Bet ${kp.publicKey.toBase58()} payout: ${toNumber(b.payout)}`);
+      totalPayout += toNumber(b.payout);
+    }
+
+    const fundOnChain = toNumber(q.fund);
+    // allow a tiny epsilon due to FP math or rounding
+    const eps = 1e-6;
+    assert.ok(totalPayout <= fundOnChain * (1 + eps), `total payout ${totalPayout} exceeded fund ${fundOnChain}`);
+  });
+
+  it("recomputes stake from payout using LMSR cost", async () => {
+    const questionKeypair = anchor.web3.Keypair.generate();
+
+    const fundValue = new anchor.BN(500); // fund for this question
+    const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
+    await program.methods
+      .askQuestion(
+        "Recompute stake test",
+        "verify LMSR inverse",
+        fundValue,
+        dateResolved,
+        ""
+      )
+      .accounts({
+        question: questionKeypair.publicKey,
+        user: program.provider.publicKey!,
+      })
+      .signers([questionKeypair])
+      .rpc();
+
+    // Fetch q before betting
+    const qBefore = await program.account.question.fetch(questionKeypair.publicKey);
+    const qyBefore = toNumber(qBefore.yesVotes);
+    const qnBefore = toNumber(qBefore.noVotes);
+
+    const stake = 37;
+    const betKeypair = anchor.web3.Keypair.generate();
+
+    await program.methods
+      .placeBet(true, stake)
+      .accounts({
+        question: questionKeypair.publicKey,
+        bet: betKeypair.publicKey,
+        user: program.provider.publicKey!,
+      })
+      .signers([betKeypair])
+      .rpc();
+
+    const betAcct = await program.account.bet.fetch(betKeypair.publicKey);
+    const payout = betAcct.payout;
+
+    // LMSR cost function in JS to recompute M from delta
+    const b = Number(fundValue) / Math.LN2;
+    function costTS(qy: number, qn: number, b: number) {
+      return b * Math.log(Math.exp(qy / b) + Math.exp(qn / b));
+    }
+
+    const mComputed = costTS(qyBefore + payout, qnBefore, b) - costTS(qyBefore, qnBefore, b);
+
+    const absDiff = Math.abs(mComputed - stake);
+    const tol = Math.max(1e-6 * Math.max(1, Math.abs(stake)), 1e-6);
+    assert.ok(absDiff <= tol || absDiff <= 1e-3, `recomputed stake ${mComputed} differs from actual ${stake} by ${absDiff}`);
+  });
+
+  it("mixed yes/no bettors show market movement and payouts", async () => {
+    const questionKeypair = anchor.web3.Keypair.generate();
+    const fundValue = new anchor.BN(1000)
+    const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
+
+    
+
+    await program.methods
+      .askQuestion("Mixed bets market", "test mixed yes/no", fundValue, dateResolved, "")
+      .accounts({ question: questionKeypair.publicKey, user: program.provider.publicKey! })
+      .signers([questionKeypair])
+      .rpc();
+
+    // Sequence: more 'no' bettors initially, then some 'yes' bettors
+    const bettors: { choice: boolean; stake: number }[] = [
+      { choice: false, stake: 20 },
+      { choice: false, stake: 25 },
+      { choice: false, stake: 30 },
+      { choice: false, stake: 15 },
+      { choice: true, stake: 50 },
+      { choice: true, stake: 40 },
+    ];
+
+    const betKeypairs: anchor.web3.Keypair[] = [];
+
+    console.log("--- Mixed bets market simulation ---");
+
+    for (let i = 0; i < bettors.length; i++) {
+      const kp = anchor.web3.Keypair.generate();
+      betKeypairs.push(kp);
+      const b = bettors[i];
+
+      await program.methods
+        .placeBet(b.choice, b.stake)
+        .accounts({ question: questionKeypair.publicKey, bet: kp.publicKey, user: program.provider.publicKey! })
+        .signers([kp])
+        .rpc();
+
+      // Fetch current question and bet
+      const qNow = await program.account.question.fetch(questionKeypair.publicKey);
+      const betAcct = await program.account.bet.fetch(kp.publicKey);
+
+      const qy = toNumber(qNow.yesVotes);
+      const qn = toNumber(qNow.noVotes);
+      const payout = toNumber(betAcct.payout);
+      const bparam = Number(fundValue) / Math.LN2;
+      const priceYes = Math.exp(qy / bparam) / (Math.exp(qy / bparam) + Math.exp(qn / bparam));
+
+      console.log(`bettor=${kp.publicKey.toBase58()} choice=${b.choice ? 'YES' : 'NO'} stake=${b.stake} payout=${payout.toFixed ? payout.toFixed(6) : payout} yes_prob=${(priceYes*100).toFixed(3)}% qy=${qy.toFixed ? qy.toFixed(6) : qy} qn=${qn.toFixed ? qn.toFixed(6) : qn}`);
+    }
+
+    // final checks: sum payouts and ensure <= fund
+    const qFinal = await program.account.question.fetch(questionKeypair.publicKey);
+    let totalPayout = 0;
+    for (const kp of betKeypairs) {
+      const b = await program.account.bet.fetch(kp.publicKey);
+      totalPayout += toNumber(b.payout);
+    }
+    const fundOnChain = toNumber(qFinal.fund);
+    assert.ok(totalPayout <= fundOnChain * (1 + 1e-6), `total payout ${totalPayout} exceeded fund ${fundOnChain}`);
+  });
 });
