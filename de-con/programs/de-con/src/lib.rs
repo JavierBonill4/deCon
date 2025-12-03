@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::system_instruction;
 use anchor_lang::solana_program::program::invoke;
+use tuktuk_program::tuktuk::program::Tuktuk;
 
 declare_id!("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");
 // declare_id!("61oxCTFdcrLTPFjEhjSQkthjpaCvukRBvVGG342sxfMa");
@@ -8,7 +9,67 @@ declare_id!("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");
 
 #[program]
 pub mod de_con {
+    use anchor_lang::{solana_program::instruction::Instruction, InstructionData};
+    use tuktuk_program::{
+        compile_transaction,
+        tuktuk::{
+            cpi::{accounts::QueueTaskV0, queue_task_v0},
+            types::TriggerV0,
+        },
+        types::QueueTaskArgsV0,
+        // write_return_tasks::{
+        //     write_return_tasks, AccountWithSeeds, PayerInfo, WriteReturnTasksArgs,
+        // },
+        // RunTaskReturnV0, TaskReturnV0, TransactionSourceV0,
+        TransactionSourceV0,
+    };
+
     use super::*;
+
+    pub fn schedule(ctx: Context<Schedule>, task_id: u16) -> Result<()> {
+        msg!("Scheduling with a PDA queue authority");
+        let (compiled_tx, _) = compile_transaction(
+            vec![Instruction {
+                program_id: crate::ID,
+                accounts: crate::__cpi_client_accounts_resolve::Resolve {
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    question: ctx.accounts.question.to_account_info(),
+                    resolver: ctx.accounts.queue_authority.to_account_info(),
+                }
+                .to_account_metas(None)
+                .to_vec(),
+                data: crate::instruction::Resolve.data(),
+            }],
+            vec![],
+        )
+        .unwrap();
+
+        queue_task_v0(
+            CpiContext::new_with_signer(
+                ctx.accounts.tuktuk_program.to_account_info(),
+                QueueTaskV0 {
+                    payer: ctx.accounts.queue_authority.to_account_info(),
+                    queue_authority: ctx.accounts.queue_authority.to_account_info(),
+                    task_queue: ctx.accounts.task_queue.to_account_info(),
+                    task_queue_authority: ctx.accounts.task_queue_authority.to_account_info(),
+                    task: ctx.accounts.task.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                },
+                &[&["queue_authority".as_bytes(), &[ctx.bumps.queue_authority]]],
+            ),
+            QueueTaskArgsV0 {
+                // trigger: TriggerV0::Timestamp(date_resolved),
+                trigger: TriggerV0::Timestamp(Clock::get()?.unix_timestamp + 60), // schedule for 1 minute later
+                transaction: TransactionSourceV0::CompiledV0(compiled_tx),
+                crank_reward: None,
+                free_tasks: 1,
+                id: task_id,
+                description: "test".to_string(),
+            },
+        )?;
+
+        Ok(())
+    }
 
     pub fn ask_question(ctx: Context<AskQuestion>, question: String, description: String, fund: u64, date_resolved: i64, img_url: String) -> Result<()> {
         let new_question = &mut ctx.accounts.question;
@@ -51,6 +112,23 @@ pub mod de_con {
                 ctx.accounts.system_program.to_account_info(),
             ],
         )?;
+
+        // Schedule resolution task via Tuktuk CPI
+        let context = Context::<Schedule>::new(
+            ctx.accounts.tuktuk_program.to_account_info().key,
+            &mut Schedule {
+                task_queue: ctx.accounts.task_queue,
+                task_queue_authority: ctx.accounts.task_queue_authority,
+                task: ctx.accounts.task.to_account_info(),
+                queue_authority: ctx.accounts.queue_authority.to_account_info(),
+                system_program: ctx.accounts.system_program,
+                tuktuk_program: ctx.accounts.tuktuk_program,
+                question: ctx.accounts.question,
+            },
+            ctx.remaining_accounts,
+            ctx.bumps.Schedule,
+        );
+        schedule(context, 42)?;
 
         Ok(())
     }
@@ -132,8 +210,25 @@ pub struct AskQuestion<'info> {
     pub user: Signer<'info>,
 
     pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
-    pub clock: Sysvar<'info, Clock>,
+    // pub rent: Sysvar<'info, Rent>,
+    // pub clock: Sysvar<'info, Clock>,
+
+    #[account(mut)]
+    /// CHECK: Don't need to parse this account, just using it in CPI
+    pub task_queue: UncheckedAccount<'info>,
+    /// CHECK: Don't need to parse this account, just using it in CPI
+    pub task_queue_authority: UncheckedAccount<'info>,
+    /// CHECK: Initialized in CPI
+    #[account(mut)]
+    pub task: AccountInfo<'info>,
+    /// CHECK: Via seeds
+    #[account(
+        mut,
+        seeds = [b"queue_authority"],
+        bump
+    )]
+    pub queue_authority: AccountInfo<'info>,
+    pub tuktuk_program: Program<'info, Tuktuk>,
 }
 
 #[derive(Accounts)]
@@ -155,6 +250,28 @@ pub struct Resolve<'info> {
   #[account(mut)]
   pub resolver: Signer<'info>,
   pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct Schedule<'info> {
+    #[account(mut)]
+    /// CHECK: Don't need to parse this account, just using it in CPI
+    pub task_queue: UncheckedAccount<'info>,
+    /// CHECK: Don't need to parse this account, just using it in CPI
+    pub task_queue_authority: UncheckedAccount<'info>,
+    /// CHECK: Initialized in CPI
+    #[account(mut)]
+    pub task: AccountInfo<'info>,
+    /// CHECK: Via seeds
+    #[account(
+        mut,
+        seeds = [b"queue_authority"],
+        bump
+    )]
+    pub queue_authority: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+    pub tuktuk_program: Program<'info, Tuktuk>,
+    pub question: Account<'info, Question>,
 }
 
 
