@@ -1,6 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::system_instruction;
-use anchor_lang::solana_program::program::invoke;
+use anchor_lang::solana_program::program::{
+    invoke,
+    invoke_signed,
+};
+
 use anchor_lang::{solana_program::instruction::Instruction, InstructionData};
 use tuktuk_program::tuktuk::program::Tuktuk;
 use tuktuk_program::{
@@ -39,6 +43,7 @@ pub mod de_con {
         new_question.owner_wallet = *ctx.accounts.user.to_account_info().key;
         new_question.resolved = false;
         new_question.resolver_reward = 0; // setable via client if you want to pay resolver
+        new_question.result = false; // default to false (no)
 
         // escrow PDA is present because we used Anchor `init` with seeds.
         let escrow_key = ctx.accounts.escrow.key();
@@ -94,6 +99,25 @@ pub mod de_con {
         new_bet.question_addr = *question_account.to_account_info().key;
         new_bet.answer = answer;
 
+        // Transfer the fund lamports from user to escrow.
+        // Note: Anchor already created the escrow account with rent-exempt lamports (minimum),
+        // but we still need to transfer the market 'fund' amount into escrow.
+        let transfer_ix = system_instruction::transfer(
+            &ctx.accounts.user.key(),
+            &question_account.escrow,
+            amount as u64,
+        );
+
+        // Invoke transfer (user is signer so no invoke_signed needed)
+        invoke(
+            &transfer_ix,
+            &[
+                ctx.accounts.user.to_account_info(),
+                ctx.accounts.escrow.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+        )?;
+
         let b = question_account.fund as f64 / std::f64::consts::LN_2;
 
         new_bet.owner_wallet = *ctx.accounts.user.to_account_info().key;
@@ -133,9 +157,47 @@ pub mod de_con {
         // mark resolved
         q.resolved = true;
 
+        q.result = true; // placeholder, set based on oracle response
+
+        Ok(())
+    }
+
+    pub fn payout(ctx: Context<Payout>) -> Result<()> {
+        // implement payout logic here
+        let q = &mut ctx.accounts.question;
+        let bet = &ctx.accounts.bet;
+
+        // let accounts = &ctx.remaining_accounts;
+
+        require!(q.resolved == true, ErrorCode::TooEarlyToPayout);
+        require!(bet.owner_wallet == *ctx.accounts.user.to_account_info().key, ErrorCode::WrongOwner);
+        require!(bet.answer == q.result, ErrorCode::NotAWinner);
+
+        // load bet account
+        // user won
+        let transfer_ix = system_instruction::transfer(
+            &q.escrow,
+            &ctx.accounts.user.key(),
+            bet.payout as u64,
+        );
+
+        // Invoke transfer (user is signer so no invoke_signed needed)
+        invoke_signed(
+            &transfer_ix,
+            &[
+                ctx.accounts.escrow.to_account_info(),
+                ctx.accounts.user.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+            &[&[b"escrow", q.key().as_ref(), &[q.escrow_bump]]],
+        )?;
+        
+        // close bet account
+
         Ok(())
     }
 } 
+
 
 pub fn schedule(ctx: &Context<AskQuestion>, task_id: u16) -> Result<()> {
         msg!("Scheduling with a PDA queue authority");
@@ -240,6 +302,9 @@ pub struct PlaceBet<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
     pub system_program: Program<'info, System>,
+    /// CHECK: No checks are necessary because the PDA doesn't store structured data here (only lamports).
+    pub escrow: UncheckedAccount<'info>,
+
 }
 
 #[derive(Accounts)]
@@ -252,8 +317,22 @@ pub struct Resolve<'info> {
   pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct Payout<'info> {
+    #[account(mut)]
+    pub question: Account<'info, Question>,
+    #[account(mut)]
+    pub bet: Account<'info, Bet>,
+    #[account(mut)]
+    pub user: Signer<'info>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: No checks are necessary because the PDA doesn't store structured data here (only lamports).
+    pub escrow: UncheckedAccount<'info>,
+}
+
 // Data Structs
 // These define the data stored in each account
+
 
 
 #[account]
@@ -276,6 +355,8 @@ pub struct Question {
 
     pub resolved: bool,
     pub resolver_reward: u64,
+
+    pub result: bool, // true = yes, false = no, only valid if resolved is true
 }
 
 
@@ -299,6 +380,12 @@ pub enum ErrorCode {
     AlreadyResolved,
     #[msg("It's too early to resolve this question.")]
     TooEarlyToResolve,
+    #[msg("It's too early to payout for this question.")]
+    TooEarlyToPayout,
+    #[msg("You are not the owner of this bet.")]
+    WrongOwner,
+    #[msg("You are not a winner on this bet.")]
+    NotAWinner,
 }
 
 
