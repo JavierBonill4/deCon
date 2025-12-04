@@ -23,6 +23,19 @@ export const taskQueueKey = (tuktukConfig : PublicKey, id : number, programId = 
     return PublicKey.findProgramAddressSync([Buffer.from("task_queue"), tuktukConfig.toBuffer(), buf], programId);
 };
 
+const taskKeyFunc = (
+  taskQueue: PublicKey,
+  id: number,
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] => {
+  const buf = Buffer.alloc(2);
+  buf.writeUint16LE(id);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("task"), taskQueue.toBuffer(), buf],
+    programId
+  );
+};
+
 const TASK_ID: number = 0; // The unique ID for the task we are scheduling
 // 1. YOUR PROGRAM ID (from declare_id! in your Rust code)
 const PROGRAM_ID = new PublicKey("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");

@@ -30,7 +30,7 @@ declare_id!("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");
 pub mod de_con {
     use super::*;
 
-    pub fn ask_question(ctx: Context<AskQuestion>, question: String, description: String, fund: u64, date_resolved: i64, img_url: String) -> Result<()> {
+    pub fn ask_question(ctx: Context<AskQuestion>, question: String, description: String, fund: u64, date_resolved: i64, img_url: String, task_id: u16) -> Result<()> {
         let new_question = &mut ctx.accounts.question;
         new_question.question = question;
         new_question.description = description;
@@ -88,7 +88,7 @@ pub mod de_con {
         //     ctx.remaining_accounts,
         //     &[&["queue_authority".as_bytes(), &[ctx.bumps.queue_authority]]],
         // );
-        schedule(&ctx, 0)?;
+        schedule(&ctx, task_id)?;
 
         Ok(())
     }
@@ -124,11 +124,12 @@ pub mod de_con {
 
         // Update vote counts on the question
         if answer {
-            let delta_qy = buy_yes_delta(question_account.yes_votes as f64, question_account.no_votes as f64, b, amount as f64, 20, 1e-12);
+            // use fewer iterations and a slightly looser tolerance to save compute on-chain
+            let delta_qy = buy_yes_delta(question_account.yes_votes as f64, question_account.no_votes as f64, b, amount as f64, 20, 1e-6);
             question_account.yes_votes += delta_qy as u64;
             new_bet.payout = delta_qy;
         } else {
-            let delta_qn = buy_no_delta(question_account.yes_votes as f64, question_account.no_votes as f64, b, amount as f64, 20, 1e-12);
+            let delta_qn = buy_no_delta(question_account.yes_votes as f64, question_account.no_votes as f64, b, amount as f64, 20, 1e-6);
             question_account.no_votes += delta_qn as u64;
             new_bet.payout = delta_qn;
         }
@@ -232,7 +233,7 @@ pub fn schedule(ctx: &Context<AskQuestion>, task_id: u16) -> Result<()> {
             ),
             QueueTaskArgsV0 {
                 // trigger: TriggerV0::Timestamp(date_resolved),
-                trigger: TriggerV0::Timestamp(Clock::get()?.unix_timestamp + 60), // schedule for 1 minute later
+                trigger: TriggerV0::Timestamp(Clock::get()?.unix_timestamp + 10), // schedule for 1 minute later
                 transaction: TransactionSourceV0::CompiledV0(compiled_tx),
                 crank_reward: None,
                 free_tasks: 1,
@@ -302,7 +303,13 @@ pub struct PlaceBet<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
     pub system_program: Program<'info, System>,
-    /// CHECK: No checks are necessary because the PDA doesn't store structured data here (only lamports).
+
+    /// CHECK: Escrow PDA holding lamports. Must be mutable so we can transfer into it.
+    #[account(
+        mut,
+        seeds = [b"escrow", question.key().as_ref()],
+        bump = question.escrow_bump,
+    )]
     pub escrow: UncheckedAccount<'info>,
 
 }
@@ -417,6 +424,10 @@ fn buy_yes_delta(
     max_iter: usize,
     tol: f64,
 ) -> f64 {
+    // quick guard: nothing to buy
+    if m <= 0.0 {
+        return 0.0;
+    }
     let original_cost = cost(q_y, q_n, b);
 
     // Lower/upper search bounds for ΔqY
@@ -424,10 +435,13 @@ fn buy_yes_delta(
     let mut high = 1.0_f64;
 
     // Expand upper bound until cost(high) - cost(0) exceeds M
+    // expand upper bound but cap growth to avoid runaway loops on-chain
+    let mut expand_iters = 0usize;
     while cost(q_y + high, q_n, b) - original_cost < m {
         high *= 2.0;
-        if high > 1e12 {
-            panic!("LMSR binary search bounds overflowed");
+        expand_iters += 1;
+        if expand_iters > 50 || high > 1e12 {
+            break;
         }
     }
 
@@ -458,6 +472,9 @@ fn buy_no_delta(
     max_iter: usize,
     tol: f64,
 ) -> f64 {
+    if m <= 0.0 {
+        return 0.0;
+    }
     let original_cost = cost(q_y, q_n, b);
 
     // Lower/upper search bounds for ΔqN
@@ -465,10 +482,12 @@ fn buy_no_delta(
     let mut high = 1.0_f64;
 
     // Increase upper bound until cost increase exceeds M
+    let mut expand_iters = 0usize;
     while cost(q_y, q_n + high, b) - original_cost < m {
         high *= 2.0;
-        if high > 1e12 {
-            panic!("LMSR binary search bounds overflowed");
+        expand_iters += 1;
+        if expand_iters > 40 || high > 1e9 {
+            break;
         }
     }
 

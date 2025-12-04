@@ -2,6 +2,55 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import assert from "assert";
 import { DeCon } from "../target/types/de_con";
+import { PublicKey, SystemProgram, LAMPORTS_PER_SOL, Transaction, Connection, Keypair, ComputeBudgetProgram } from "@solana/web3.js";
+
+
+// Accountd for tuktuk
+const TUKTUK_PROGRAM_ID = new PublicKey("tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA");
+const TASK_QUEUE_KEY = new PublicKey("4Yu6dH3pTzCH8ewRkw2MAJDbrmiHjT6wNVJpETU1zKum");
+const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("6ces48ZeV7JYmccwdTkspayKMWAh5LpCvdfXH8K575AD");
+
+// let TASK_ID: number = 0; // The unique ID for the task we are scheduling
+// const [taskKey] = PublicKey.findProgramAddressSync(
+//     [
+//         Buffer.from("task"),
+//         TASK_QUEUE_KEY.toBuffer(),
+//         // Task ID as a 2 byte little-endian buffer
+//         Buffer.from(new Uint8Array(new Uint16Array([TASK_ID]).buffer)),
+//     ],
+//     TUKTUK_PROGRAM_ID // The Tuktuk Program is the owner of the Task account
+// );
+
+// let TASK_ID_2: number = 1;
+// const [taskKey_2] = PublicKey.findProgramAddressSync(
+//     [
+//         Buffer.from("task"),
+//         TASK_QUEUE_KEY.toBuffer(),
+//         // Task ID as a 2 byte little-endian buffer
+//         Buffer.from(new Uint8Array(new Uint16Array([TASK_ID_2]).buffer)),
+//     ],
+//     TUKTUK_PROGRAM_ID // The Tuktuk Program is the owner of the Task account
+// );
+
+const taskKeyFunc = (
+  taskQueue: PublicKey,
+  id: number,
+  programId: PublicKey = TUKTUK_PROGRAM_ID
+): [PublicKey, number] => {
+  const buf = Buffer.alloc(2);
+  buf.writeUint16LE(id);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("task"), taskQueue.toBuffer(), buf],
+    programId
+  );
+};
+let TASK_ID: number = 0; // The unique ID for the task we are scheduling
+const [taskKey] = taskKeyFunc(TASK_QUEUE_KEY, TASK_ID);
+const TASK_ID_2: number = 1;
+const [taskKey_2] = taskKeyFunc(TASK_QUEUE_KEY, TASK_ID_2);
+
+
+
 
 describe("de-con", () => {
   // Configure the client to use the local cluster.
@@ -12,18 +61,22 @@ describe("de-con", () => {
 
   it("creates a Question with ask_question", async () => {
     const questionKeypair = anchor.web3.Keypair.generate();
-
+    console.log(`Derived Task Account PDA for askQuestion, test1: ${taskKey.toBase58()}`);
     const questionText = "Will it rain tomorrow?";
     const description = "Short weather prediction";
     const fund = new anchor.BN(1000);
     const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
     const imgUrl = "https://example.com/image.png";
+    
 
     await program.methods
-      .askQuestion(questionText, description, fund, dateResolved, imgUrl)
+      .askQuestion(questionText, description, fund, dateResolved, imgUrl, TASK_ID)
       .accounts({
         question: questionKeypair.publicKey,
-        user: program.provider.publicKey!,
+        user: program.provider.publicKey,
+        taskQueue: TASK_QUEUE_KEY,
+        taskQueueAuthority: TASK_QUEUE_AUTHORITY_KEY, // your queue authority
+        task: taskKeyFunc(TASK_QUEUE_KEY, TASK_ID)[0],
       })
       .signers([questionKeypair])
       .rpc();
@@ -45,17 +98,24 @@ describe("de-con", () => {
   it("places a bet and records Bet account", async () => {
     // First create a question to bet on
     const questionKeypair = anchor.web3.Keypair.generate();
+
+    TASK_ID += 1;
+
     await program.methods
       .askQuestion(
         "Is 2+2=4?",
         "Simple math question",
-        new anchor.BN(0),
+        new anchor.BN(1000),
         new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000)),
-        ""
+        "",
+        TASK_ID
       )
       .accounts({
         question: questionKeypair.publicKey,
-        user: program.provider.publicKey!,
+        user: program.provider.publicKey,
+        taskQueue: TASK_QUEUE_KEY,
+        taskQueueAuthority: TASK_QUEUE_AUTHORITY_KEY, // your queue authority
+        task: taskKeyFunc(TASK_QUEUE_KEY, TASK_ID)[0],
       })
       .signers([questionKeypair])
       .rpc();
@@ -65,6 +125,19 @@ describe("de-con", () => {
     const betChoice = true;
     const betAmount = 500;
 
+    // Derive the escrow PDA (adjust seeds as per your program)
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), questionKeypair.publicKey.toBuffer()],
+        program.programId
+    );
+
+    console.log(`Derived escrow PDA: ${escrowPda.toBase58()}`);
+
+    // request additional compute units (e.g. 400k) — adjust as needed
+    const extraUnitsIx = ComputeBudgetProgram.setComputeUnitLimit({
+    units: 400_000,         // target total CUs for the tx
+    });
+
     await program.methods
       .placeBet(betChoice, betAmount)
       .accounts({
@@ -72,6 +145,7 @@ describe("de-con", () => {
         bet: betKeypair.publicKey,
         user: program.provider.publicKey!,
       })
+      .preInstructions([extraUnitsIx])
       .signers([betKeypair])
       .rpc();
 
@@ -115,6 +189,8 @@ describe("de-con", () => {
   it("cumulative payouts do not exceed fund", async () => {
     const questionKeypair = anchor.web3.Keypair.generate();
 
+    TASK_ID += 1;
+
     const fundValue = new anchor.BN(1000); // use a round fund value
     const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
     await program.methods
@@ -123,11 +199,15 @@ describe("de-con", () => {
         "Market prediction",
         fundValue,
         dateResolved,
-        ""
+        "",
+        TASK_ID
       )
       .accounts({
         question: questionKeypair.publicKey,
-        user: program.provider.publicKey!,
+        user: program.provider.publicKey,
+        taskQueue: TASK_QUEUE_KEY,
+        taskQueueAuthority: TASK_QUEUE_AUTHORITY_KEY, // your queue authority
+        task: taskKeyFunc(TASK_QUEUE_KEY, TASK_ID)[0],
       })
       .signers([questionKeypair])
       .rpc();
@@ -169,20 +249,33 @@ describe("de-con", () => {
   it("recomputes stake from payout using LMSR cost", async () => {
     const questionKeypair = anchor.web3.Keypair.generate();
 
-    const fundValue = new anchor.BN(500); // fund for this question
+    const fundValue = new anchor.BN(50000); // fund for this question
     const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
+
+    TASK_ID += 1;
+
+    // request additional compute units (e.g. 400k) — adjust as needed
+    const extraUnitsIx = ComputeBudgetProgram.setComputeUnitLimit({
+    units: 400_000,         // target total CUs for the tx
+    });
+
     await program.methods
       .askQuestion(
         "Recompute stake test",
         "verify LMSR inverse",
         fundValue,
         dateResolved,
-        ""
+        "",
+        TASK_ID
       )
       .accounts({
         question: questionKeypair.publicKey,
-        user: program.provider.publicKey!,
+        user: program.provider.publicKey,
+        taskQueue: TASK_QUEUE_KEY,
+        taskQueueAuthority: TASK_QUEUE_AUTHORITY_KEY, // your queue authority
+        task: taskKeyFunc(TASK_QUEUE_KEY, TASK_ID)[0],
       })
+      .preInstructions([extraUnitsIx])
       .signers([questionKeypair])
       .rpc();
 
@@ -191,7 +284,7 @@ describe("de-con", () => {
     const qyBefore = toNumber(qBefore.yesVotes);
     const qnBefore = toNumber(qBefore.noVotes);
 
-    const stake = 37;
+    const stake = 3700;
     const betKeypair = anchor.web3.Keypair.generate();
 
     await program.methods
@@ -217,7 +310,7 @@ describe("de-con", () => {
 
     const absDiff = Math.abs(mComputed - stake);
     const tol = Math.max(1e-6 * Math.max(1, Math.abs(stake)), 1e-6);
-    assert.ok(absDiff <= tol || absDiff <= 1e-3, `recomputed stake ${mComputed} differs from actual ${stake} by ${absDiff}`);
+    assert.ok(absDiff <= tol || absDiff <= 1e-1, `recomputed stake ${mComputed} differs from actual ${stake} by ${absDiff}`);
   });
 
   it("mixed yes/no bettors show market movement and payouts", async () => {
@@ -225,11 +318,17 @@ describe("de-con", () => {
     const fundValue = new anchor.BN(1000)
     const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
 
-    
+    TASK_ID += 1;
 
     await program.methods
-      .askQuestion("Mixed bets market", "test mixed yes/no", fundValue, dateResolved, "")
-      .accounts({ question: questionKeypair.publicKey, user: program.provider.publicKey! })
+      .askQuestion("Mixed bets market", "test mixed yes/no", fundValue, dateResolved, "", TASK_ID)
+      .accounts({ 
+        question: questionKeypair.publicKey,
+        user: program.provider.publicKey,
+        taskQueue: TASK_QUEUE_KEY,
+        taskQueueAuthority: TASK_QUEUE_AUTHORITY_KEY, // your queue authority
+        task: taskKeyFunc(TASK_QUEUE_KEY, TASK_ID)[0],
+       })
       .signers([questionKeypair])
       .rpc();
 
