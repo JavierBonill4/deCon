@@ -7,7 +7,8 @@
   "dependencies": {
     "@clockwork-xyz/sdk": "^0.3.4",
     "@coral-xyz/anchor": "0.31.1",
-    "@helium/tuktuk-sdk": "^0.0.10"
+    "@helium/tuktuk-sdk": "^0.0.10",
+    "ts-node": "^10.9.2"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",

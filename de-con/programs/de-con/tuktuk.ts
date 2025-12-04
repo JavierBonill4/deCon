@@ -8,7 +8,7 @@ import { BN } from "bn.js";
 // import { tuktukConfigKey, taskQueueKey,  } from "@helium/tuktuk-sdk"
 
 
-
+// 
 const taskQueueAuthorityKey = (taskQueue : PublicKey, queueAuthority : PublicKey, programId = PROGRAM_ID) => {
     return PublicKey.findProgramAddressSync([Buffer.from("task_queue_authority"), taskQueue.toBuffer(), queueAuthority.toBuffer()], programId);
 };
@@ -23,7 +23,7 @@ export const taskQueueKey = (tuktukConfig : PublicKey, id : number, programId = 
     return PublicKey.findProgramAddressSync([Buffer.from("task_queue"), tuktukConfig.toBuffer(), buf], programId);
 };
 
-const TASK_ID: number = 42; // The unique ID for the task we are scheduling
+const TASK_ID: number = 0; // The unique ID for the task we are scheduling
 // 1. YOUR PROGRAM ID (from declare_id! in your Rust code)
 const PROGRAM_ID = new PublicKey("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");
 
@@ -34,30 +34,48 @@ const TUKTUK_PROGRAM_ID = new PublicKey("tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF5
 // 3. TASK QUEUE SETUP (Mock accounts - replace with real ones)
 // This is the specific Task Queue account you want to use (e.g., 'deCon')
 const tuktukConfig = tuktukConfigKey()[0];
-const TASK_QUEUE_KEY = taskQueueKey(tuktukConfig, 42)[0];//new PublicKey("Det9gdPXmtuAKdhtX1G3SX2RaeaKHdT42yztrVrzNLuF");
-console.log(TASK_QUEUE_KEY.toBase58());
+
+
+// const TASK_QUEUE_KEY = taskQueueKey(tuktukConfig, 42)[0];//new PublicKey("Det9gdPXmtuAKdhtX1G3SX2RaeaKHdT42yztrVrzNLuF");
+
+const TASK_QUEUE_KEY = new PublicKey("4Yu6dH3pTzCH8ewRkw2MAJDbrmiHjT6wNVJpETU1zKum");
+
+console.log("Task Queue key", TASK_QUEUE_KEY.toBase58());
+
 // const config = await program.account.tuktukConfigV0.fetch(tuktukConfig);
 // const nextTaskQueueId = config.nextTaskQueueId;
-//  taskQueue = taskQueueKey(tuktukConfig, 42)[0];
+// const taskQueue = taskQueueKey(tuktukConfig, 0)[0];
+// console.log("Derived Task Queue PDA: ", taskQueue.toBase58());
 
 // The authority of the specific Task Queue (e.g., the key that ran 'tuktuk task-queue create')
-const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("EJSCBa4TNR9aY3WLCnynQbntmDznfJKNmeyUKvjyxxxA");
+// const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("EJSCBa4TNR9aY3WLCnynQbntmDznfJKNmeyUKvjyxxxA");
+
+// from solscan 
+const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("6ces48ZeV7JYmccwdTkspayKMWAh5LpCvdfXH8K575AD");
+
 
 const [taskKey] = PublicKey.findProgramAddressSync(
     [
         Buffer.from("task"),
         TASK_QUEUE_KEY.toBuffer(),
-        Buffer.from([TASK_ID]) // Task ID as a Buffer
+        // Task ID as a 2 byte little-endian buffer
+        Buffer.from(new Uint8Array(new Uint16Array([TASK_ID]).buffer)),
     ],
     TUKTUK_PROGRAM_ID // The Tuktuk Program is the owner of the Task account
 );
+// from error message when running, was comparing derived address we passed to this address
+// const taskKey = new PublicKey("8fhtMu3spxwNpenjShS8kU6fEeRZNJWWQdFMCECnkfKR");
+
+
 console.log(`Derived Task Account PDA: ${taskKey.toBase58()}`);
+
 
 // 1. Derive the 'queue_authority' PDA (as defined in your Schedule Context)
 const [queueAuthorityKey, queueAuthorityBump] = PublicKey.findProgramAddressSync(
     [Buffer.from("queue_authority")],
     PROGRAM_ID
 );
+// const queueAuthorityKey = new PublicKey("CuELr9EEr38wBoe3NSLMN8hSe6oDnFJLyijGtp9gnnUW");
 console.log(`Derived Queue Authority PDA: ${queueAuthorityKey.toBase58()}`);
 
 
@@ -91,7 +109,7 @@ const taskKeypair = anchor.web3.Keypair.generate();
     const connection = provider.connection;
     const payer = (provider.wallet as anchor.Wallet).payer;
 
-    console.log(taskQueueAuthorityKey(TASK_QUEUE_KEY, queueAuthorityKey)[0].toBase58());
+    console.log("Derived task queue athority: ", taskQueueAuthorityKey(TASK_QUEUE_KEY, queueAuthorityKey)[0].toBase58());
 
     // 1) call askQuestion
     await program.methods
@@ -102,7 +120,8 @@ const taskKeypair = anchor.web3.Keypair.generate();
             user: provider.publicKey,
             systemProgram: SystemProgram.programId,
             taskQueue: TASK_QUEUE_KEY,
-            taskQueueAuthority: taskQueueAuthorityKey(TASK_QUEUE_KEY, queueAuthorityKey)[0], // your queue authority
+            taskQueueAuthority: TASK_QUEUE_AUTHORITY_KEY, // your queue authority
+            // taskQueueAuthority: taskQueueAuthorityKey(TASK_QUEUE_KEY, queueAuthorityKey)[0], // your queue authority
             task: taskKey,
             queueAuthority: queueAuthorityKey,
             tuktukProgram: TUKTUK_PROGRAM_ID,
@@ -116,7 +135,7 @@ const taskKeypair = anchor.web3.Keypair.generate();
 
 })();
 // export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com 
-//  tuktuk -u https://api.devnet.solana.com task-queue create --name deCon --capacity 10 --funding-amount 100000000 --queue-authority EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55 --min-crank-reward 1000000 --stale-task-age 1000
+//  tuktuk -u https://api.devnet.solana.com task-queue create --name deConV2 --capacity 10 --funding-amount 100000000 --queue-authority EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55 --min-crank-reward 1000000 --stale-task-age 1000
 // {
 //     "pubkey": "Det9gdPXmtuAKdhtX1G3SX2RaeaKHdT42yztrVrzNLuF",
 //     "id": 135,
@@ -127,6 +146,17 @@ const taskKeypair = anchor.web3.Keypair.generate();
 //     "balance": 1100000000,
 //     "stale_task_age": 1000
 //   }
+
+// {
+//   "pubkey": "4Yu6dH3pTzCH8ewRkw2MAJDbrmiHjT6wNVJpETU1zKum",
+//   "id": 137,
+//   "capacity": 10,
+//   "update_authority": "EJSCBa4TNR9aY3WLCnynQbntmDznfJKNmeyUKvjyxxxA",
+//   "name": "deConV2",
+//   "min_crank_reward": 1000000,
+//   "balance": 1100000000,
+//   "stale_task_age": 1000
+// }
 
 
 // tuktuk -u https://api.devnet.solana.com tuktuk-config

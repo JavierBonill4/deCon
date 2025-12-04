@@ -83,7 +83,7 @@ pub mod de_con {
         //     ctx.remaining_accounts,
         //     &[&["queue_authority".as_bytes(), &[ctx.bumps.queue_authority]]],
         // );
-        schedule(&ctx, 42)?;
+        schedule(&ctx, 0)?;
 
         Ok(())
     }
@@ -145,7 +145,7 @@ pub fn schedule(ctx: &Context<AskQuestion>, task_id: u16) -> Result<()> {
                 accounts: crate::__cpi_client_accounts_resolve::Resolve {
                     system_program: ctx.accounts.system_program.to_account_info(),
                     question: ctx.accounts.question.to_account_info(),
-                    resolver: ctx.accounts.queue_authority.to_account_info(),
+                    // resolver: ctx.accounts.queue_authority.to_account_info(),
                 }
                 .to_account_metas(None)
                 .to_vec(),
@@ -247,8 +247,8 @@ pub struct Resolve<'info> {
   #[account(mut)]
   pub question: Account<'info, Question>,
   // optional: account to receive resolver reward
-  #[account(mut)]
-  pub resolver: Signer<'info>,
+//   #[account(mut)]
+//   pub resolver: Signer<'info>,
   pub system_program: Program<'info, System>,
 }
 
