@@ -38,7 +38,8 @@ const taskKeyFunc = (
 
 const TASK_ID: number = 0; // The unique ID for the task we are scheduling
 // 1. YOUR PROGRAM ID (from declare_id! in your Rust code)
-const PROGRAM_ID = new PublicKey("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");
+// const PROGRAM_ID = new PublicKey("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");
+const PROGRAM_ID = new PublicKey("61oxCTFdcrLTPFjEhjSQkthjpaCvukRBvVGG342sxfMa");
 
 // 2. THE TUKTUK PROGRAM ID (The target of the CPI call)
 // NOTE: You MUST replace this with the actual Tuktuk program ID for your network
@@ -51,7 +52,10 @@ const tuktukConfig = tuktukConfigKey()[0];
 
 // const TASK_QUEUE_KEY = taskQueueKey(tuktukConfig, 42)[0];//new PublicKey("Det9gdPXmtuAKdhtX1G3SX2RaeaKHdT42yztrVrzNLuF");
 
-const TASK_QUEUE_KEY = new PublicKey("4Yu6dH3pTzCH8ewRkw2MAJDbrmiHjT6wNVJpETU1zKum");
+// const TASK_QUEUE_KEY = new PublicKey("4Yu6dH3pTzCH8ewRkw2MAJDbrmiHjT6wNVJpETU1zKum");
+const TASK_QUEUE_KEY = new PublicKey("A7sPoHKnFGYdzrhhUTQfeZZPTvx9DHJVSuyHViDv1Drn");
+
+
 
 console.log("Task Queue key", TASK_QUEUE_KEY.toBase58());
 
@@ -64,7 +68,7 @@ console.log("Task Queue key", TASK_QUEUE_KEY.toBase58());
 // const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("EJSCBa4TNR9aY3WLCnynQbntmDznfJKNmeyUKvjyxxxA");
 
 // from solscan 
-const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("6ces48ZeV7JYmccwdTkspayKMWAh5LpCvdfXH8K575AD");
+const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("2WRjX5QKDmKqVgoNeCE4x3gV2WxCExCr71jGP8KmZyZm");
 
 
 const [taskKey] = PublicKey.findProgramAddressSync(
@@ -126,7 +130,7 @@ const taskKeypair = anchor.web3.Keypair.generate();
 
     // 1) call askQuestion
     await program.methods
-        .askQuestion(questionText, description, new BN(fundLamports), new BN(dateResolvedUnix), imgUrl)
+        .askQuestion(questionText, description, new BN(fundLamports), new BN(dateResolvedUnix), imgUrl, TASK_ID)
         .accounts({
             question: questionKeypair.publicKey,
             escrow: escrowPda,
@@ -174,7 +178,7 @@ const taskKeypair = anchor.web3.Keypair.generate();
 
 // tuktuk -u https://api.devnet.solana.com tuktuk-config
 
-//tuktuk -u https://api.devnet.solana.com task list --task-queue-name deCon
+// tuktuk -u https://api.devnet.solana.com task list --task-queue-name deCon
 
 
 // tuktuk -u https://api.devnet.solana.com task-queue remove-queue-authority --task-queue-name deCon --queue-authority EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55
@@ -182,7 +186,20 @@ const taskKeypair = anchor.web3.Keypair.generate();
 // tuktuk -u https://api.devnet.solana.com task-queue close --task-queue-name deCon 
 
 
-// tuktuk -u https://api.devnet.solana.com task-queue add-queue-authority --task-queue-name deCon --queue-authority EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55
-// 9T6ixDodZxJjEV3pLNzUDrQ72pGpTGTJaHY2yREBmmaz
+// tuktuk -u https://api.devnet.solana.com task-queue add-queue-authority --task-queue-name deConV3 --queue-authority G6Pw6HLuwBRqYQpEUHtWYsobqt3bnfwwYzyyRrnSha3M
+// 6ces48ZeV7JYmccwdTkspayKMWAh5LpCvdfXH8K575AD
 
 // tuktuk -u https://api.devnet.solana.com task-queue show --task-queue-name deCon
+
+
+// tuktuk -u https://api.devnet.solana.com task-queue create --name deConV3 --capacity 10 --funding-amount 100000000 --queue-authority G6Pw6HLuwBRqYQpEUHtWYsobqt3bnfwwYzyyRrnSha3M --min-crank-reward 1000000 --stale-task-age 1000
+// {
+//   "pubkey": "A7sPoHKnFGYdzrhhUTQfeZZPTvx9DHJVSuyHViDv1Drn",
+//   "id": 139,
+//   "capacity": 10,
+//   "update_authority": "G6Pw6HLuwBRqYQpEUHtWYsobqt3bnfwwYzyyRrnSha3M",
+//   "name": "deConV3",
+//   "min_crank_reward": 1000000,
+//   "balance": 1100000000,
+//   "stale_task_age": 1000
+// }

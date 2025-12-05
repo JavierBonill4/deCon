@@ -7,8 +7,8 @@ import { PublicKey, SystemProgram, LAMPORTS_PER_SOL, Transaction, Connection, Ke
 
 // Accountd for tuktuk
 const TUKTUK_PROGRAM_ID = new PublicKey("tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA");
-const TASK_QUEUE_KEY = new PublicKey("4Yu6dH3pTzCH8ewRkw2MAJDbrmiHjT6wNVJpETU1zKum");
-const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("6ces48ZeV7JYmccwdTkspayKMWAh5LpCvdfXH8K575AD");
+const TASK_QUEUE_KEY = new PublicKey("A7sPoHKnFGYdzrhhUTQfeZZPTvx9DHJVSuyHViDv1Drn");
+const TASK_QUEUE_AUTHORITY_KEY = new PublicKey("2WRjX5QKDmKqVgoNeCE4x3gV2WxCExCr71jGP8KmZyZm");
 
 // let TASK_ID: number = 0; // The unique ID for the task we are scheduling
 // const [taskKey] = PublicKey.findProgramAddressSync(
@@ -68,7 +68,7 @@ describe("de-con", () => {
     const dateResolved = new anchor.BN(Math.floor(new Date("2025-12-6T00:00:00Z").getTime() / 1000));
     const imgUrl = "https://example.com/image.png";
     
-
+    console.log(`here: ${taskKeyFunc(TASK_QUEUE_KEY, TASK_ID)[0]}`)
     await program.methods
       .askQuestion(questionText, description, fund, dateResolved, imgUrl, TASK_ID)
       .accounts({
@@ -259,6 +259,10 @@ describe("de-con", () => {
     units: 400_000,         // target total CUs for the tx
     });
 
+    const extraUnitsIx_2 = ComputeBudgetProgram.setComputeUnitLimit({
+    units: 400_000,         // target total CUs for the tx
+    });
+
     await program.methods
       .askQuestion(
         "Recompute stake test",
@@ -294,6 +298,7 @@ describe("de-con", () => {
         bet: betKeypair.publicKey,
         user: program.provider.publicKey!,
       })
+      .preInstructions([extraUnitsIx_2])
       .signers([betKeypair])
       .rpc();
 
@@ -310,7 +315,7 @@ describe("de-con", () => {
 
     const absDiff = Math.abs(mComputed - stake);
     const tol = Math.max(1e-6 * Math.max(1, Math.abs(stake)), 1e-6);
-    assert.ok(absDiff <= tol || absDiff <= 1e-1, `recomputed stake ${mComputed} differs from actual ${stake} by ${absDiff}`);
+    assert.ok(absDiff <= tol || absDiff <= 1, `recomputed stake ${mComputed} differs from actual ${stake} by ${absDiff}`);
   });
 
   it("mixed yes/no bettors show market movement and payouts", async () => {

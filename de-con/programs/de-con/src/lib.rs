@@ -22,8 +22,8 @@ use tuktuk_program::{
     };
 
 
-declare_id!("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");
-// declare_id!("61oxCTFdcrLTPFjEhjSQkthjpaCvukRBvVGG342sxfMa");
+// declare_id!("EKX73CGvyv8vdYvvzarCAZvrV8xtbjC8zWrb8Zm8fK55");
+declare_id!("61oxCTFdcrLTPFjEhjSQkthjpaCvukRBvVGG342sxfMa");
 
 
 #[program]
@@ -125,11 +125,11 @@ pub mod de_con {
         // Update vote counts on the question
         if answer {
             // use fewer iterations and a slightly looser tolerance to save compute on-chain
-            let delta_qy = buy_yes_delta(question_account.yes_votes as f64, question_account.no_votes as f64, b, amount as f64, 20, 1e-6);
+            let delta_qy = buy_yes_delta(question_account.yes_votes as f64, question_account.no_votes as f64, b, amount as f64, 15, 1e-6);
             question_account.yes_votes += delta_qy as u64;
             new_bet.payout = delta_qy;
         } else {
-            let delta_qn = buy_no_delta(question_account.yes_votes as f64, question_account.no_votes as f64, b, amount as f64, 20, 1e-6);
+            let delta_qn = buy_no_delta(question_account.yes_votes as f64, question_account.no_votes as f64, b, amount as f64, 15, 1e-6);
             question_account.no_votes += delta_qn as u64;
             new_bet.payout = delta_qn;
         }
