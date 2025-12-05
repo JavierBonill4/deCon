@@ -2,7 +2,7 @@
 
 import { getDeConProgram, getDeConProgramId } from '@project/anchor'
 import { useConnection } from '@solana/wallet-adapter-react'
-import { Cluster, Keypair, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js'
+import { Cluster, Keypair, PublicKey, TransactionMessage, VersionedTransaction, SystemProgram } from '@solana/web3.js'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useCluster } from '../cluster/cluster-data-access'
@@ -320,8 +320,101 @@ export function useDeConProgramAccount({ account }: { account: PublicKey }) {
     },
   });
   
-
+  const payoutMutationV2 = useMutation({
+    mutationKey: ['DeCon', 'payout', { cluster, account }],
+  
+    mutationFn: async (payload: {
+      wallet: Wallet,
+      betKeypair: Keypair,
+    }) => {
+      const userPublicKey = payload.wallet.adapter.publicKey!;
+      if (!userPublicKey) throw new Error("Wallet not connected");
+  
+      // ------------------------------
+      // Build the instruction
+      // ------------------------------
+      const ix = await program.methods
+        .payout()
+        .accounts({
+          question: account,
+          bet: payload.betKeypair.publicKey,
+          user: userPublicKey,
+        })
+        .instruction();
+  
+      // ------------------------------
+      // Get blockhash
+      // ------------------------------
+      const latestBlockhash = await connection.getLatestBlockhash();
+  
+      // ------------------------------
+      // Build TransactionMessage
+      // ------------------------------
+      const msg = new TransactionMessage({
+        payerKey: userPublicKey,
+        recentBlockhash: latestBlockhash.blockhash,
+        instructions: [ix],
+      }).compileToLegacyMessage();
+  
+      const tx = new VersionedTransaction(msg);
+  
+      // ------------------------------------------------
+      // Sign with betKeypair BEFORE wallet adds signature
+      // ------------------------------------------------
+      tx.sign([payload.betKeypair]);
+  
+      // ------------------------------
+      // Wallet signs + sends
+      // ------------------------------
+      const sig = await payload.wallet.adapter.sendTransaction(tx, connection);
+  
+      await connection.confirmTransaction(
+        { signature: sig, ...latestBlockhash },
+        "confirmed"
+      );
+  
+      return sig;
+    },
+  
+    onSuccess: async (sig) => {
+      transactionToast(sig);
+      await accounts.refetch();
+    },
+  
+    onError: () => {
+      toast.error("Failed to payout");
+    },
+  });
+  
   const payoutMutation = useMutation({
+    mutationKey: ['DeCon', 'payout', { cluster, account }],
+  
+    mutationFn: async (payload: { betKeypair: Keypair }) => {
+      const questionPubkey = account;
+      const [escrowPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), questionPubkey.toBuffer()],
+        program.programId
+      );
+  
+      return await program.methods
+        .payout()
+        .accounts({
+          question: questionPubkey,
+          bet: payload.betKeypair.publicKey,
+          user: program.provider.publicKey!,
+          // systemProgram: SystemProgram.programId,
+          // escrow: escrowPda,
+        })
+        .rpc();
+    },
+  
+    onSuccess: async (tx) => {
+      transactionToast(tx);
+      await accounts.refetch();
+    },
+  });
+  
+  const payoutMutationV3 = useMutation({
     mutationKey: ['DeCon', 'payout', { cluster, account }],
     mutationFn: (payload: { betKeypair: Keypair }) => program.methods.payout().accounts({
       question: account,

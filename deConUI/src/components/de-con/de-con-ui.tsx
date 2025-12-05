@@ -27,6 +27,8 @@ export function DeConCreate() {
   const [questionText, setQuestionText] = useState("");
   const [description, setDescription] = useState("");
   const [funds, setFunds] = useState("");
+  const [dateResolved, setDateResolved] = useState("");
+
 
   const [questionKeypair, setQuestionKeypair] = useState<Keypair | null>(null);
 
@@ -34,6 +36,7 @@ export function DeConCreate() {
     setQuestionText("");
     setDescription("");
     setFunds("");
+    setDateResolved("");
     setQuestionKeypair(null);
   };
 
@@ -81,6 +84,7 @@ export function DeConCreate() {
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Question */}
             <div>
               <Label>Question</Label>
               <Input
@@ -90,6 +94,7 @@ export function DeConCreate() {
               />
             </div>
 
+            {/* Description */}
             <div>
               <Label>Description</Label>
               <Input
@@ -99,6 +104,7 @@ export function DeConCreate() {
               />
             </div>
 
+            {/* Funding */}
             <div>
               <Label>Funding Amount (SOL)</Label>
               <Input
@@ -106,6 +112,16 @@ export function DeConCreate() {
                 placeholder="0.1"
                 value={funds}
                 onChange={(e) => setFunds(e.target.value)}
+              />
+            </div>
+
+            {/* Date Resolved */}
+            <div>
+              <Label>Date Resolved</Label>
+              <Input
+                type="datetime-local"
+                value={dateResolved}
+                onChange={(e) => setDateResolved(e.target.value)}
               />
             </div>
           </div>
@@ -117,6 +133,7 @@ export function DeConCreate() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }
@@ -168,6 +185,7 @@ function DeConCard({ account }: { account: PublicKey }) {
 
   const [payoutOpen, setPayoutOpen] = useState(false)
   const [payoutBetPubkey, setPayoutBetPubkey] = useState('')
+  const [selectedAction, setSelectedAction] = useState<"place" | "payout" | null>(null);
 
   const onSubmitPlaceBet = async () => {
     const amount = parseFloat(placeAmount)
@@ -199,7 +217,10 @@ function DeConCard({ account }: { account: PublicKey }) {
       const betPub = new PublicKey(payoutBetPubkey)
       // mutation only needs the publicKey for the account in this codepath
       const fakeKeypair = { publicKey: betPub } as unknown as Keypair
-      await payoutMutation.mutateAsync({ betKeypair: fakeKeypair })
+      // await payoutMutation.mutateAsync({ 
+      //   wallet: wallet!, betKeypair: fakeKeypair 
+      // })
+      await payoutMutation.mutateAsync({betKeypair: fakeKeypair})
       setPayoutOpen(false)
       setPayoutBetPubkey('')
     } catch (err) {
@@ -222,21 +243,29 @@ function DeConCard({ account }: { account: PublicKey }) {
         <CardContent>
           <div className="flex gap-4">
 
-            <Button
-              variant="outline"
-              onClick={() => setPlaceOpen(true)}
-              disabled={placeBetMutation.isPending}
-            >
-              Place Bet
-            </Button>
+          <Button
+            variant="outline"
+            className={selectedAction === "place" ? "ring-2 ring-primary bg-accent" : ""}
+            onClick={() => {
+              setSelectedAction("place");
+              setPlaceOpen(true);
+            }}
+          >
+            Place Bet
+          </Button>
 
-            <Button
-              variant="outline"
-              onClick={() => setPayoutOpen(true)}
-              disabled={payoutMutation.isPending}
-            >
-              Payout
-            </Button>
+          <Button
+            variant="outline"
+            className={selectedAction === "payout" ? "ring-2 ring-primary bg-accent" : ""}
+            onClick={() => {
+              setSelectedAction("payout");
+              setPayoutOpen(true);
+            }}
+          >
+            Payout
+          </Button>
+
+
 
           </div>
         </CardContent>
@@ -253,21 +282,40 @@ function DeConCard({ account }: { account: PublicKey }) {
             <div>
               <Label>Answer</Label>
               <div className="flex gap-2 mt-2">
-                <button
-                  className={`btn ${placeAnswer === 'yes' ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setPlaceAnswer('yes')}
-                >
-                  Yes
-                </button>
-                <button
-                  className={`btn ${placeAnswer === 'no' ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setPlaceAnswer('no')}
-                >
-                  No
-                </button>
+              <button
+                className={`btn transition-all duration-150 ${
+                  placeAnswer === "yes"
+                    ? "btn-primary ring-2 ring-primary/40 scale-[1.03]"
+                    : "btn-ghost"
+                }`}
+                onClick={() => setPlaceAnswer("yes")}
+              >
+                Yes
+              </button>
+
+              <button
+                className={`btn transition-all duration-150 ${
+                  placeAnswer === "no"
+                    ? "btn-primary ring-2 ring-primary/40 scale-[1.03]"
+                    : "btn-ghost"
+                }`}
+                onClick={() => setPlaceAnswer("no")}
+              >
+                No
+              </button>
+
               </div>
             </div>
 
+            {/* <div>
+              <Label>Amount (SOL)</Label>
+              <Input
+                type="number"
+                placeholder="0.1"
+                value={placeAmount}
+                onChange={(e) => setPlaceAmount(e.target.value)}
+              />
+            </div> */}
             <div>
               <Label>Amount (SOL)</Label>
               <Input
@@ -276,7 +324,15 @@ function DeConCard({ account }: { account: PublicKey }) {
                 value={placeAmount}
                 onChange={(e) => setPlaceAmount(e.target.value)}
               />
+
+              {/* Reward Preview */}
+              {placeAmount && !isNaN(parseFloat(placeAmount)) && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Reward: {(parseFloat(placeAmount) * 1.99265039).toFixed(7)} SOL
+                </p>
+              )}
             </div>
+
           </div>
 
           <DialogFooter>

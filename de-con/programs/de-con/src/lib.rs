@@ -234,7 +234,7 @@ pub fn schedule(ctx: &Context<AskQuestion>, task_id: u16) -> Result<()> {
             ),
             QueueTaskArgsV0 {
                 // trigger: TriggerV0::Timestamp(date_resolved),
-                trigger: TriggerV0::Timestamp(Clock::get()?.unix_timestamp + 10), // schedule for 1 minute later
+                trigger: TriggerV0::Timestamp(Clock::get()?.unix_timestamp + 120), // schedule for 1 minute later
                 transaction: TransactionSourceV0::CompiledV0(compiled_tx),
                 crank_reward: None,
                 free_tasks: 1,
