@@ -328,7 +328,7 @@ function DeConCard({ account }: { account: PublicKey }) {
               {/* Reward Preview */}
               {placeAmount && !isNaN(parseFloat(placeAmount)) && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  Reward: {(parseFloat(placeAmount) * 1.99265039).toFixed(7)} SOL
+                  Reward: {(parseFloat(placeAmount) * 1).toFixed(7)} SOL {/* This is wrong need to do math */}
                 </p>
               )}
             </div>
