@@ -385,4 +385,134 @@ describe("de-con", () => {
     const fundOnChain = toNumber(qFinal.fund);
     assert.ok(totalPayout <= fundOnChain * (1 + 1e-6), `total payout ${totalPayout} exceeded fund ${fundOnChain}`);
   });
+
+  it("winners can claim payout after resolution (escrow decreases)", async () => {
+    const questionKeypair = anchor.web3.Keypair.generate();
+    const fundValue = new anchor.BN(5000);
+    // set resolved time in the past so resolve() can be called immediately
+    const dateResolved = new anchor.BN(Math.floor(Date.now() / 1000) - 60);
+
+    TASK_ID += 3;
+
+    await program.methods
+      .askQuestion("Payout test", "resolve then payout", fundValue, dateResolved, "", TASK_ID)
+      .accounts({
+        question: questionKeypair.publicKey,
+        user: program.provider.publicKey,
+        taskQueue: TASK_QUEUE_KEY,
+        taskQueueAuthority: TASK_QUEUE_AUTHORITY_KEY,
+        task: taskKeyFunc(TASK_QUEUE_KEY, TASK_ID)[0],
+      })
+      .signers([questionKeypair])
+      .rpc();
+
+    // place a bet as the provider (winner)
+    const betKeypair = anchor.web3.Keypair.generate();
+    const betChoice = true;
+    const betAmount = 100;
+
+    await program.methods
+      .placeBet(betChoice, betAmount)
+      .accounts({
+        question: questionKeypair.publicKey,
+        bet: betKeypair.publicKey,
+        user: program.provider.publicKey!,
+      })
+      .signers([betKeypair])
+      .rpc();
+
+    // derive escrow PDA
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), questionKeypair.publicKey.toBuffer()],
+      program.programId
+    );
+
+    // read bet payout and escrow balance before
+    const betAcctBefore = await program.account.bet.fetch(betKeypair.publicKey);
+    const payoutFloat = toNumber(betAcctBefore.payout);
+    const payoutU64 = Math.floor(payoutFloat);
+
+    const escrowBalBefore = await program.provider.connection.getBalance(escrowPda);
+
+    // call resolve (will mark question resolved)
+    await program.methods
+      .resolve()
+      .accounts({ question: questionKeypair.publicKey })
+      .rpc();
+
+    // call payout (provider is bet owner and signs automatically)
+    await program.methods
+      .payout()
+      .accounts({
+        question: questionKeypair.publicKey,
+        bet: betKeypair.publicKey,
+        user: program.provider.publicKey!,
+        // escrow: escrowPda,
+      })
+      .rpc();
+
+    const escrowBalAfter = await program.provider.connection.getBalance(escrowPda);
+
+    // escrow should have decreased by at least the payout amount (rounded down)
+    const escrowDelta = escrowBalBefore - escrowBalAfter;
+    assert.ok(
+      escrowDelta >= payoutU64,
+      `escrow decreased by ${escrowDelta}, expected at least ${payoutU64}`
+    );
+  });
+
+  it("cannot payout to non-owner and fails gracefully", async () => {
+    const questionKeypair = anchor.web3.Keypair.generate();
+    const fundValue = new anchor.BN(3000);
+    const dateResolved = new anchor.BN(Math.floor(Date.now() / 1000) - 60);
+
+    TASK_ID += 1;
+
+    await program.methods
+      .askQuestion("Payout fail test", "non-owner cannot claim", fundValue, dateResolved, "", TASK_ID)
+      .accounts({
+        question: questionKeypair.publicKey,
+        user: program.provider.publicKey,
+        taskQueue: TASK_QUEUE_KEY,
+        taskQueueAuthority: TASK_QUEUE_AUTHORITY_KEY,
+        task: taskKeyFunc(TASK_QUEUE_KEY, TASK_ID)[0],
+      })
+      .signers([questionKeypair])
+      .rpc();
+
+    // place a bet as provider
+    const betKeypair = anchor.web3.Keypair.generate();
+    const betAmount = 50;
+    await program.methods
+      .placeBet(true, betAmount)
+      .accounts({ question: questionKeypair.publicKey, bet: betKeypair.publicKey, user: program.provider.publicKey! })
+      .signers([betKeypair])
+      .rpc();
+
+    // resolve the question
+    await program.methods
+      .resolve()
+      .accounts({ question: questionKeypair.publicKey })
+      .rpc();
+
+    // attempt payout with a different signer (random keypair)
+    const attacker = anchor.web3.Keypair.generate();
+    const [escrowPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), questionKeypair.publicKey.toBuffer()],
+      program.programId
+    );
+
+    let threw = false;
+    try {
+      await program.methods
+        .payout()
+        .accounts({ question: questionKeypair.publicKey, bet: betKeypair.publicKey, user: attacker.publicKey })
+        .signers([attacker])
+        .rpc();
+    } catch (err) {
+      threw = true;
+    }
+
+    assert.ok(threw, "payout did not fail when called by non-owner");
+  });
 });

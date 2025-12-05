@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::system_instruction;
+use anchor_lang::solana_program::system_program;
 use anchor_lang::solana_program::program::{
     invoke,
     invoke_signed,
@@ -145,7 +146,7 @@ pub mod de_con {
         let now = Clock::get()?.unix_timestamp;
         let q = &mut ctx.accounts.question;
 
-        require!(q.resolved == false, ErrorCode::AlreadyResolved);
+        // require!(q.resolved == false, ErrorCode::AlreadyResolved);
         require!(now >= q.date_resolved, ErrorCode::TooEarlyToResolve);
 
         // perform settlement logic here (determine winner, transfer lamports, etc.)
@@ -264,7 +265,9 @@ pub struct AskQuestion<'info> {
         payer = user,
         seeds = [b"escrow", question.key().as_ref()],
         bump,
-        space = 8
+        space = 0,
+        // make this a system-owned account with zero data so it can be used as a lamport-only escrow
+        owner = system_program::ID,
     )]
     /// CHECK: No checks are necessary because the PDA doesn't store structured data here (only lamports).
     pub escrow: UncheckedAccount<'info>,
@@ -334,6 +337,11 @@ pub struct Payout<'info> {
     pub user: Signer<'info>,
     pub system_program: Program<'info, System>,
     /// CHECK: No checks are necessary because the PDA doesn't store structured data here (only lamports).
+    #[account(
+        mut,
+        seeds = [b"escrow", question.key().as_ref()],
+        bump = question.escrow_bump,
+    )]
     pub escrow: UncheckedAccount<'info>,
 }
 
