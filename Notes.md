@@ -42,3 +42,92 @@
 
 ## What the guy said to do for oracle
 alchemy good free create an app get api Key and with RPC url use some sort of web3 provider, ether JS, VIEN and wagmy to access smart contract.
+
+# Project description
+DeCon, by Javier Bonilla and Cole Abbott
+The goal of our hackathon project on the solana track is the idea of decentralized consulting through the means of prediction markets. Prediction markets are historically accurate on predicting outcomes because of the dispersment of many users putting their own money on the line based on many factors that differ for each user. Our goal is to accumulate users looking for intel whether it is business or personal and connect them with users throughout the world who may have information or predictions on the intel. DeCon lets users interact with a straight forward webapp on the front end to both pose a question alongside with funding for the question (to incentivise initial betting) and bet on various questions and their outcomes. DeCon runs on the Solana blockchain as a dapp, and is capable of handlig question objects and bet objects to organize users money and what bets are connected with what questions. We used the LMSR algorithm to determine user payout to ensure all users can recieve their promised rewards if they win and a question will never promise rewards past funds that it has in stock. Our project is still very rootimental and lacks 3 aspects: efficient checking to ensure a questions validity when a question deadline hase been reached, decision making on the result for after an outcome has occured(OO UMA voting with a bridge/ or we would build our own version of this as Solana lacks one), and legal aspects for questions being posed.
+
+
+export function DeConCreate() {
+  const { askQuestion } = useDeConProgram()
+
+  const [open, setOpen] = useState(false)
+
+  const [choice, setChoice] = useState<string>("yes")
+  const [amount, setAmount] = useState("")
+
+  const resetForm = () => {
+    setChoice("yes")
+    setAmount("")
+  }
+
+  const handleSubmit = async () => {
+    if (!amount) {
+      alert("Amount is required")
+      return
+    }
+
+    const payload = {
+      keypair: Keypair.generate(),
+      choice: choice === "yes",         // boolean true/false
+      amount: new anchor.BN(parseFloat(amount)),
+    }
+
+    await askQuestion.mutateAsync(payload)
+
+    setOpen(false)
+    resetForm()
+  }
+
+  return (
+    <div className="mb-4">
+      <Button
+        onClick={() => setOpen(true)}
+        disabled={askQuestion.isPending}
+      >
+        Bet {askQuestion.isPending && "..."}
+      </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Place a Bet</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+
+            <div>
+              <Label>Choose Yes or No</Label>
+              <Select value={choice} onValueChange={(v) => setChoice(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an option" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Amount (SOL)</Label>
+              <Input
+                type="number"
+                placeholder="0.1"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+            </div>
+
+          </div>
+
+          <DialogFooter>
+            <Button onClick={handleSubmit} disabled={askQuestion.isPending}>
+              Submit Bet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
